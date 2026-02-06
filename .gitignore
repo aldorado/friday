@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# uv
+.python-version
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+*.egg-info/
+
+# Data
+data/
+
+# Temp files
+*.tmp
+*.log
+
+# Personal service file
+jarvis.service
+
+# Local tools and projects (not pushed to github)
+local/
