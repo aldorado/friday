@@ -165,8 +165,9 @@ class ClaudeRunner:
         vienna_time_str = vienna_now.strftime("%Y-%m-%d %H:%M (%A)")
 
         # Build the prompt
+        from .platform import get_platform
         prompt_parts = []
-        prompt_parts.append("[Platform: WhatsApp]")
+        prompt_parts.append(f"[Platform: {get_platform().capitalize()}]")
         if user_name:
             prompt_parts.append(f"[User: {user_name}]")
         prompt_parts.append(f"[Vienna time: {vienna_time_str}]")

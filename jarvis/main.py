@@ -1,4 +1,4 @@
-"""FastAPI webhook server for WhatsApp messages."""
+"""FastAPI webhook server for messaging platforms (WhatsApp / Telegram)."""
 
 import logging
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request, Response, HTTPException
 
-from .whatsapp import WhatsAppClient
+from .platform import get_platform, get_client
 from .claude_runner import ClaudeRunner
 from .voice import VoiceHandler
 from .message_store import MessageStore
@@ -24,8 +24,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("jarvis")
 
+# Platform
+platform = get_platform()
+
 # Global instances
-whatsapp: WhatsAppClient
+client = None
 claude: ClaudeRunner
 voice: VoiceHandler
 message_store: MessageStore
@@ -37,20 +40,20 @@ _processing_messages: set[str] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
-    global whatsapp, claude, voice, message_store
+    global client, claude, voice, message_store
 
     # Initialize clients
     project_dir = Path(__file__).parent.parent
-    whatsapp = WhatsAppClient()
+    client = get_client()
     claude = ClaudeRunner(project_dir)
     voice = VoiceHandler()
     message_store = MessageStore(project_dir / "data")
 
-    logger.info("Jarvis initialized and ready")
+    logger.info(f"Jarvis initialized on {platform} and ready")
     yield
 
     # Cleanup
-    await whatsapp.close()
+    await client.close()
     logger.info("Jarvis shutdown complete")
 
 
@@ -59,7 +62,11 @@ app = FastAPI(title="Jarvis", lifespan=lifespan)
 
 @app.get("/webhook")
 async def verify_webhook(request: Request):
-    """Handle Meta webhook verification."""
+    """Handle webhook verification (WhatsApp challenge-response / Telegram simple OK)."""
+    if platform == "telegram":
+        return Response(content="OK", media_type="text/plain")
+
+    # WhatsApp verification
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
@@ -67,7 +74,7 @@ async def verify_webhook(request: Request):
     if not all([mode, token, challenge]):
         raise HTTPException(status_code=400, detail="Missing parameters")
 
-    result = whatsapp.verify_webhook(mode, token, challenge)
+    result = client.verify_webhook(mode, token, challenge)
     if result:
         logger.info("Webhook verified successfully")
         return Response(content=result, media_type="text/plain")
@@ -77,12 +84,16 @@ async def verify_webhook(request: Request):
 
 @app.post("/webhook")
 async def handle_webhook(request: Request):
-    """Handle incoming WhatsApp messages."""
-    # Verify signature if configured
-    signature = request.headers.get("X-Hub-Signature-256", "")
+    """Handle incoming messages."""
+    # Get signature based on platform
+    if platform == "telegram":
+        signature = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    else:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+
     body = await request.body()
 
-    if not whatsapp.verify_signature(body, signature):
+    if not client.verify_signature(body, signature):
         logger.warning("Invalid webhook signature")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
@@ -93,16 +104,21 @@ async def handle_webhook(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     # Extract message info
-    message_info = whatsapp.parse_webhook_message(data)
+    message_info = client.parse_webhook_message(data)
     if not message_info:
         # Not a message event (could be status update, etc.)
+        return {"status": "ok"}
+
+    # Telegram: only allow the configured user
+    allowed_user = os.environ.get("USER_PHONE_NUMBER")
+    if platform == "telegram" and allowed_user and message_info["from"] != allowed_user:
+        logger.warning(f"Ignoring message from unauthorized user: {message_info['from']}")
         return {"status": "ok"}
 
     logger.info(f"Received message from {message_info['name']} ({message_info['from']})")
     logger.info(f"Message info: type={message_info['type']}, text={message_info.get('text')}, image_id={message_info.get('image_id')}, audio_id={message_info.get('audio_id')}, reply_to={message_info.get('reply_to_message_id')}, reaction={message_info.get('reaction_emoji')}")
 
     # Process in background to respond quickly to webhook
-    # (WhatsApp expects quick response)
     import asyncio
     asyncio.create_task(process_message(message_info))
 
@@ -160,14 +176,14 @@ async def process_message(message_info: dict):
         elif message_info["type"] == "audio" and message_info["audio_id"]:
             logger.info("Processing voice message")
             # Download and transcribe audio
-            audio_data, content_type = await whatsapp.download_media(message_info["audio_id"])
+            audio_data, content_type = await client.download_media(message_info["audio_id"])
             user_message = await voice.transcribe(audio_data, content_type)
             is_voice = True
             logger.info(f"Transcribed: {user_message[:100]}...")
         elif message_info["type"] == "image" and message_info["image_id"]:
             logger.info("Processing image message")
             # Download image and save to temp file
-            image_data, content_type = await whatsapp.download_media(message_info["image_id"])
+            image_data, content_type = await client.download_media(message_info["image_id"])
             # Determine extension from content type
             ext = ".jpg"
             if "png" in content_type:
@@ -187,7 +203,7 @@ async def process_message(message_info: dict):
             is_voice = False
         else:
             logger.warning(f"Unsupported message type: {message_info['type']}")
-            await whatsapp.send_text(user_id, "sorry, i can only handle text, voice and image messages right now")
+            await client.send_text(user_id, "sorry, i can only handle text, voice and image messages right now")
             return
 
         # Store incoming message for future reply context lookups
@@ -218,9 +234,7 @@ async def process_message(message_info: dict):
             _, audio_path = await voice.text_to_speech(response.voice_text)
 
             try:
-                # Upload and send audio
-                media_id = await whatsapp.upload_media(audio_path, "audio/mpeg")
-                send_result = await whatsapp.send_audio_by_id(user_id, media_id)
+                send_result = await client.send_audio_file(user_id, audio_path)
                 # Store outgoing voice message for reply context
                 if msg_id := send_result.get("messages", [{}])[0].get("id"):
                     message_store.store(msg_id, f"[voice] {response.voice_text}", "jarvis")
@@ -231,13 +245,13 @@ async def process_message(message_info: dict):
 
             # Also send text if it's different from voice text
             if response.response_text and response.response_text != response.voice_text:
-                send_result = await whatsapp.send_text(user_id, response.response_text)
+                send_result = await client.send_text(user_id, response.response_text)
                 if msg_id := send_result.get("messages", [{}])[0].get("id"):
                     message_store.store(msg_id, response.response_text, "jarvis")
         else:
             # Send text response
             if response.response_text:
-                send_result = await whatsapp.send_text(user_id, response.response_text)
+                send_result = await client.send_text(user_id, response.response_text)
                 # Store outgoing message for reply context
                 if msg_id := send_result.get("messages", [{}])[0].get("id"):
                     message_store.store(msg_id, response.response_text, "jarvis")
@@ -256,7 +270,7 @@ async def process_message(message_info: dict):
         error_msg = f"{type(e).__name__}: {str(e)}"
         claude.session_logger.log_response(user_id, f"[ERROR]: {error_msg}")
         try:
-            await whatsapp.send_text(user_id, "oops, something went wrong on my end. give me a sec and try again?")
+            await client.send_text(user_id, "oops, something went wrong on my end. give me a sec and try again?")
         except Exception:
             logger.exception("Failed to send error message")
     finally:

@@ -133,24 +133,20 @@ Output your decision via the structured response."""
         return {"response_text": "", "conversation_finished": True}
 
 
-async def send_whatsapp_message(message: str) -> bool:
-    """Send message via WhatsApp."""
+async def send_message(message: str) -> bool:
+    """Send message via the configured messaging platform."""
     user_phone = os.environ.get("USER_PHONE_NUMBER")
     if not user_phone:
         return False
 
-    required_vars = ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN"]
-    if not all(os.environ.get(var) for var in required_vars):
-        return False
-
     try:
-        from jarvis.whatsapp import WhatsAppClient
-        client = WhatsAppClient()
+        from jarvis.platform import get_client
+        client = get_client()
         await client.send_text(user_phone, message)
         await client.close()
         return True
     except Exception as e:
-        print(f"WhatsApp send failed: {e}", file=sys.stderr)
+        print(f"Send failed: {e}", file=sys.stderr)
         return False
 
 
@@ -169,7 +165,7 @@ async def main():
     if response_text:
         # Claude decided to send a message
         print(f"Sending message: {response_text[:100]}...")
-        sent = await send_whatsapp_message(response_text)
+        sent = await send_message(response_text)
         if sent:
             print("Message sent successfully")
         else:

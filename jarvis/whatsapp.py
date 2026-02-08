@@ -120,6 +120,11 @@ class WhatsAppClient:
         response.raise_for_status()
         return response.json()
 
+    async def send_audio_file(self, to: str, file_path: str) -> dict:
+        """Upload and send audio from a file path."""
+        media_id = await self.upload_media(file_path, "audio/mpeg")
+        return await self.send_audio_by_id(to, media_id)
+
     async def download_media(self, media_id: str) -> tuple[bytes, str]:
         """Download media file by ID. Returns (content, content_type)."""
         # First get the media URL

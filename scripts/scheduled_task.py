@@ -24,12 +24,12 @@ async def run_claude_task(task_name: str, task_description: str, claude_path: st
 {task_description}
 
 CRITICAL RULES FOR SCHEDULED TASKS:
-- Your ENTIRE output will be sent directly to the user via WhatsApp as-is
+- Your ENTIRE output will be sent directly to the user via messaging platform as-is
 - ONLY output the final message for the user - nothing else
 - Do the "before responding" checklist (chat-history, memories, news.md) for context, but NEVER mention or output anything about those steps
 - Do NOT output any internal thinking, planning, status updates, or meta-commentary
 - Do NOT say things like "let me check..." or "now I'll send..." or "no news entries to process"
-- Just do whatever work you need silently using tools, then output ONLY the final WhatsApp message
+- Just do whatever work you need silently using tools, then output ONLY the final message
 - Stay in character as jarvis"""
 
     project_root = Path(__file__).parent.parent
@@ -93,28 +93,23 @@ def write_to_news(task_name: str, result: str) -> bool:
     return True
 
 
-async def send_whatsapp_notification(task_name: str, result: str) -> bool:
-    """Send task result via WhatsApp. Returns True if sent successfully."""
+async def send_notification(task_name: str, result: str) -> bool:
+    """Send task result via messaging platform. Returns True if sent successfully."""
     user_phone = os.environ.get("USER_PHONE_NUMBER")
     if not user_phone:
         return False
 
-    # Check required WhatsApp env vars
-    required_vars = ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN"]
-    if not all(os.environ.get(var) for var in required_vars):
-        return False
-
     try:
-        from jarvis.whatsapp import WhatsAppClient
+        from jarvis.platform import get_client
         from jarvis.message_store import MessageStore
         from jarvis.session_logger import SessionLogger
 
         project_root = Path(__file__).parent.parent
-        client = WhatsAppClient()
+        client = get_client()
         message_store = MessageStore(project_root / "data")
         session_logger = SessionLogger(project_root / "data" / "sessions")
 
-        # Truncate result if too long for WhatsApp (max ~4096 chars)
+        # Truncate if too long (safe for both platforms)
         max_len = 3500
         if len(result) > max_len:
             result = result[:max_len] + "\n\n... (truncated)"
@@ -137,7 +132,7 @@ async def send_whatsapp_notification(task_name: str, result: str) -> bool:
 
         return True
     except Exception as e:
-        print(f"WhatsApp notification failed: {e}", file=sys.stderr)
+        print(f"Notification failed: {e}", file=sys.stderr)
         return False
 
 
@@ -154,8 +149,8 @@ async def main_async(args):
         # Write to news.md for async pickup by next conversation
         wrote_news = write_to_news(args.name, result)
 
-        # Also send via WhatsApp for immediate notification
-        sent = await send_whatsapp_notification(args.name, result)
+        # Also send via messaging platform for immediate notification
+        sent = await send_notification(args.name, result)
 
     # Always print to stdout (for logging)
     print(f"Task '{args.name}' completed:")
@@ -163,7 +158,7 @@ async def main_async(args):
     if wrote_news:
         print("(Written to news.md)")
     if sent:
-        print("(Sent via WhatsApp)")
+        print("(Sent notification)")
 
     # Remove if one-shot
     if args.one_shot:

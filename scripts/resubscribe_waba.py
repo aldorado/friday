@@ -11,6 +11,11 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# WABA resubscription is WhatsApp-only
+if os.environ.get("PLATFORM", "whatsapp").lower() != "whatsapp":
+    print("Skipping WABA resubscription (not on WhatsApp platform)")
+    sys.exit(0)
+
 import httpx
 
 
