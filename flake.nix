@@ -28,6 +28,25 @@
           httptools
           uvloop
         ]);
+
+        # Claude Code CLI — installed from npm
+        claudeCode = pkgs.stdenv.mkDerivation {
+          pname = "claude-code";
+          version = "latest";
+          dontUnpack = true;
+
+          nativeBuildInputs = [ pkgs.nodejs_22 pkgs.makeWrapper ];
+
+          buildPhase = ''
+            export HOME=$TMPDIR
+            ${pkgs.nodejs_22}/bin/npm install -g @anthropic-ai/claude-code --prefix $out
+          '';
+
+          installPhase = ''
+            makeWrapper $out/bin/claude $out/bin/claude \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs_22 ]}
+          '';
+        };
       in
       {
         packages.default = pkgs.stdenv.mkDerivation {
@@ -49,13 +68,17 @@
             makeWrapper ${pythonEnv}/bin/python $out/bin/jarvis \
               --add-flags "-m jarvis.main" \
               --chdir "$out/lib/jarvis" \
-              --prefix PYTHONPATH : "$out/lib/jarvis"
+              --prefix PYTHONPATH : "$out/lib/jarvis" \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ claudeCode ]}
           '';
         };
+
+        packages.claude-code = claudeCode;
 
         devShells.default = pkgs.mkShell {
           packages = [
             pythonEnv
+            claudeCode
             pkgs.uv
           ];
 

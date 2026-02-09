@@ -172,7 +172,7 @@ def main():
     parser.add_argument("name", help="Task name")
     parser.add_argument("description", help="Task description")
     parser.add_argument("--one-shot", action="store_true", help="Remove task after running")
-    parser.add_argument("--silent", action="store_true", help="Don't send notifications (news.md or WhatsApp)")
+    parser.add_argument("--silent", action="store_true", help="Don't send notifications (news.md or messaging platform)")
     parser.add_argument("--claude-path", required=True, help="Path to claude CLI")
     args = parser.parse_args()
 

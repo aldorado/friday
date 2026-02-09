@@ -1,1 +1,1 @@
-# Jarvis - WhatsApp Claude Code Agent
+# Jarvis - AI messaging agent powered by Claude Code

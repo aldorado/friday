@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 class MessageStore:
-    """Store messages keyed by WhatsApp message ID for reply context lookup."""
+    """Store messages keyed by message ID for reply context lookup."""
 
     def __init__(self, data_dir: str = "data"):
         self.data_dir = Path(data_dir)
